@@ -3,10 +3,9 @@ from base64 import encodebytes
 from sys import argv
 from pathlib import Path
 import requests
+import json
 
-u = "{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/commits/{GITHUB_SHA}/check-runs/{GITHUB_RUN_ID}".format(
-    **environ
-)
+
 
 
 def gh(url, method="GET", data=None, headers=None, token=None):
@@ -18,24 +17,55 @@ def gh(url, method="GET", data=None, headers=None, token=None):
     return requests.request(method=method, url=url, headers=headers, data=data)
 
 
+def to_gh_severity(bandit_severity):
+    if bandit_severity == "LOW":
+        return "notice"
+    return "warning"
+
+
 results = json.loads(Path("bandit.json").read_text())
+errors = results["errors"]
 annotations = [
     dict(
         path=result["filename"],
         start_line=result["line_number"],
         end_line=result["line_number"],
-        annotation_level=result["issue_severity"],
+        annotation_level=to_gh_severity(result["issue_severity"]),
         title=result["test_name"],
         message=result["issue_text"],
     )
-    for result in results
+    for result in results["results"]
 ]
 
-checks = dict(annotations=annotation)
+u_patch = "{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/commits/{GITHUB_SHA}/check-runs".format(
+    **environ
+)
 
-res = gh(u, method="PATCH", data=json.dumps(checks), token=environ["GITHUB_TOKEN"])
+u_post = "{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/check-runs".format(
+    **environ
+)
 
-print("Workflow status:", res.status_code, res.json())
+from datetime import datetime, timezone
+
+#res = gh(u_patch, method="PATCH", data=json.dumps({"annotations": annotations}), token=environ["GITHUB_TOKEN"])
+res = gh(u_post, method="POST", data=json.dumps({
+    "name": "Bandit comments",
+    "head_sha": environ.get('GITHUB_SHA'),
+    "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "annotations": annotations,
+    "conclusion": "success" if not errors else "failure",
+    "output": {
+        "title": "Bandit is ok",
+        "summary": repr(errors),
+        "annotations": annotations,
+    }
+}), token=environ["GITHUB_TOKEN"])
+
+print("Workflow status:", res.status_code, res.json(), res.url)
+
+if res.status_code >= 300:
+    raise SystemExit(1)
+
 results = [
     {
         "code": "40 \n41     p = randint(0, 10)\n42 \n",
