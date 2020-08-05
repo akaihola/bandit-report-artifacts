@@ -2,7 +2,7 @@ from collections import namedtuple
 from pathlib import Path
 import requests
 import json
-from subprocess import run
+from subprocess import run  # nosec - module is used cleaning environment variables and with shell=False
 from datetime import datetime, timezone
 from os import environ
 
@@ -31,8 +31,10 @@ def to_gh_severity(bandit_severity):
 
 def run_bandit(args, env=None):
     #  Control environment variables passed to bandit.
-    out = run(
-        ["bandit", "-f", "json"] + args,
+    my_args = ["bandit", "-f", "json"] + args
+    out = run(  # nosec - this input cannot execute different commands.
+        my_args,
+        shell=False,
         capture_output=True,
         env=env or {"PATH": environ["PATH"]},
     )
@@ -71,32 +73,11 @@ def bandit_error(error):
     )
 
 
-def test_errors():
-    results = json.loads(Path("tests/bandit.error.json").read_text())
-    errors = [bandit_error(error) for error in results["errors"]]
-    assert errors[0]["path"] == "LICENSE"
-
 
 def bandit_annotations(results):
     return [bandit_annotation(result) for result in results["results"]]
 
 
-def test_annotations():
-    results = json.loads(Path("tests/bandit.json").read_text())
-    annotations = bandit_annotations(results)
-    assert annotations[0]["path"] == "canary.py"
-    assert annotations[0]["start_line"] == 3
-
-
-def test_run_bandit():
-    results = run_bandit(["canary.py"])
-    assert "results" in results
-
-
-def test_run_check():
-    results = json.loads(Path("tests/bandit.json").read_text())
-    run_check_body = bandit_run_check(results)
-    assert run_check_body["conclusion"] == "failure"
 
 
 def bandit_run_check(results, github_sha=None):
@@ -127,14 +108,17 @@ def bandit_run_check(results, github_sha=None):
 if __name__ == "__main__":
     from sys import argv
 
-    results = run_bandit(argv[1:], env={"PATH": environ["PATH"]})
-    errors = results["errors"]
+    REQUIRED_ENV = {'GITHUB_API_URL', 'GITHUB_REPOSITORY', 'GITHUB_SHA', 'GITHUB_TOKEN'}
+    if not REQUIRED_ENV < set(environ):
+        print("Missing one or more of the following environment variables", REQUIRED_ENV-set(environ))
+        raise SystemExit(1)
 
     u_patch = "{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/commits/{GITHUB_SHA}/check-runs".format(
         **environ
     )
-
     u_post = "{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/check-runs".format(**environ)
+
+    results = run_bandit(argv[1:], env={"PATH": environ["PATH"]})
 
     bandit_checks = bandit_run_check(results, environ.get("GITHUB_SHA"))
     res = gh(
