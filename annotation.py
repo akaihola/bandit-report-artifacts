@@ -2,7 +2,9 @@ from collections import namedtuple
 from pathlib import Path
 import requests
 import json
-from subprocess import run  # nosec - module is used cleaning environment variables and with shell=False
+from subprocess import (  # nosec - module is used cleaning environment variables and with shell=False
+    run,
+)
 from datetime import datetime, timezone
 from os import environ
 
@@ -33,10 +35,7 @@ def run_bandit(args, env=None):
     #  Control environment variables passed to bandit.
     my_args = ["bandit", "-f", "json"] + args
     out = run(  # nosec - this input cannot execute different commands.
-        my_args,
-        shell=False,
-        capture_output=True,
-        env=env or {"PATH": environ["PATH"]},
+        my_args, shell=False, capture_output=True, env=env or {"PATH": environ["PATH"]},
     )
     if out.returncode < 2:
         # Everything ok
@@ -73,27 +72,28 @@ def bandit_error(error):
     )
 
 
-
 def bandit_annotations(results):
     return [bandit_annotation(result) for result in results["results"]]
 
 
-
-
-def bandit_run_check(results, github_sha=None):
+def bandit_run_check(results, github_sha=None, dummy=False):
     annotations = bandit_annotations(results)
     errors = [bandit_error(e) for e in results["errors"]]
     conclusion = "success"
     title = "Bandit: no issues found"
+    name = "Bandit comments"
     summary = (
         f"""Total statistics: {json.dumps(results['metrics']["_totals"], indent=2)}"""
     )
 
     if errors or annotations:
         conclusion = "failure"
+    if dummy:
+        conclusion = "neutral"
+        name = "Bandit dummy run"
 
     return {
-        "name": "Bandit comments",
+        "name": name,
         "head_sha": github_sha,
         "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "conclusion": conclusion,
@@ -108,9 +108,12 @@ def bandit_run_check(results, github_sha=None):
 if __name__ == "__main__":
     from sys import argv
 
-    REQUIRED_ENV = {'GITHUB_API_URL', 'GITHUB_REPOSITORY', 'GITHUB_SHA', 'GITHUB_TOKEN'}
+    REQUIRED_ENV = {"GITHUB_API_URL", "GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_TOKEN"}
     if not REQUIRED_ENV < set(environ):
-        print("Missing one or more of the following environment variables", REQUIRED_ENV-set(environ))
+        print(
+            "Missing one or more of the following environment variables",
+            REQUIRED_ENV - set(environ),
+        )
         raise SystemExit(1)
 
     u_patch = "{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/commits/{GITHUB_SHA}/check-runs".format(
@@ -118,9 +121,11 @@ if __name__ == "__main__":
     )
     u_post = "{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/check-runs".format(**environ)
 
-    results = run_bandit(argv[1:], env={"PATH": environ["PATH"]})
+    bandit_results = run_bandit(argv[1:], env={"PATH": environ["PATH"]})
 
-    bandit_checks = bandit_run_check(results, environ.get("GITHUB_SHA"))
+    bandit_checks = bandit_run_check(
+        bandit_results, environ.get("GITHUB_SHA"), dummy=environ.get("DUMMY_ANNOTATION")
+    )
     res = gh(
         u_post,
         method="POST",
