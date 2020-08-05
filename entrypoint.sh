@@ -15,7 +15,7 @@ pyenv virtualenv $INPUT_PYTHON_VERSION venv
 pyenv activate venv
 
 echo "🔥🔥🔥🔥🔥Running security check🔥🔥🔥🔥🔥🔥"
-pip -r requirements.txt
+pip  install -r requirements.txt
 mkdir -p $GITHUB_WORKSPACE/output
 touch $GITHUB_WORKSPACE/output/security_report.txt
 bandit -r $INPUT_PROJECT_PATH -o $GITHUB_WORKSPACE/output/security_report.txt -f 'txt'
