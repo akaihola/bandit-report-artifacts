@@ -91,6 +91,7 @@ def bandit_run_check(results, github_sha=None, dummy=False):
     if dummy:
         conclusion = "neutral"
         name = "Bandit dummy run"
+        title = "Bandit dummy run (always neutral)"
 
     return {
         "name": name,
